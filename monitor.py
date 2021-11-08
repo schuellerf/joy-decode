@@ -15,7 +15,7 @@ to your PC
 The generated CSV can be imported by e.g. libreoffice with the language "English (USA)" to make sure that the numbers are correct
 
 Usage:
-    monitor.py [--interface=<dev>] [--baud=<baud>] [--address_code=<addr>] [--delay=<delay>] [--output=<output>] [--comment=<comment>]
+    monitor.py [--interface=<dev>] [--baud=<baud>] [--address_code=<addr>] [--delay=<delay>] [--output=<output>] [--comment=<comment>] [--verbose]
 
 Options:
     -i --interface=<dev>      Serial Device
@@ -24,6 +24,7 @@ Options:
     -d --delay=<delay>        Delay for polling of values in milliseconds. Set to 0 to disable polling. [default: 1000]
     -o --output=<output>      Filename to output CSV data, will append if existing [default: power_log.csv]
     -c --comment=<comment>    Optional comment to be added to the data. (e.g. person doing the workout) [default: ]
+    -v --verbose              Debug output on stderr [default: false]
 """
 
 import os
@@ -32,6 +33,7 @@ import re
 import time
 import datetime
 import csv
+import sys
 
 from docopt import docopt
 from enum import Enum
@@ -88,8 +90,14 @@ class DPM8600:
         self.address_code = address_code
         self.baud_rate = baud_rate
         self.interface = interface
+        self.serial = None
 
-        self.serial = serial.Serial(interface, baud_rate, timeout=5)
+        try:
+            self.serial = serial.Serial(interface, baud_rate, timeout=5)
+        except serial.serialutil.SerialException as se:
+            print(f"SerialException: {se}")
+            sys.exit(1)
+
         try:
             self.serial.open()
         except serial.serialutil.SerialException:
@@ -97,9 +105,11 @@ class DPM8600:
         self.cmd_re = re.compile(f"{self.START}(?P<addr>\d+)(?P<func>[wr])(?P<func_num>\d+)=((?P<operand>\d+),?)+.?{self.END}")
 
     def __del__(self):
-        self.serial.close()
+        if self.serial:
+            self.serial.close()
 
     def _send(self, cmd, operands = [0]):
+        global debug
         cmd_name = self.Function(cmd).name
 
         if cmd_name.startswith("WRITE_"):
@@ -112,13 +122,20 @@ class DPM8600:
 
         raw_cmd = f"{self.START}{self.address_code:02}{func}{cmd.value:02}={operand},{self.END}"
 
+        if debug: print(f"out >{raw_cmd}<",file=sys.stderr)
         self.serial.write(raw_cmd.encode())
         self.serial.flush()
 
     def _read(self, cmd):
+        global debug
 
-        ret = self.serial.read_until()
+        try:
+            ret = self.serial.read_until()
+        except SerialException as se:
+            print(f"SerialException {se}", file=sys.stderr)
+            return None
         ret = ret.decode()
+        if debug: print(f"in >{ret}<",file=sys.stderr)
 
         if ret is None or len(ret) == 0:
             return None
@@ -166,11 +183,13 @@ class DPM8600:
         return self._read(self.Function.READ_TEMPERATURE)
 
 if __name__ == "__main__":
+    global debug
     args = docopt(__doc__, version="0.1")
 
     if args["--interface"] is None:
         args["--interface"] = DEFAULT_INTERFACE
     print(args)
+    debug = bool(args["--verbose"])
 
     dev =  DPM8600(address_code = int(args["--address_code"]),
                    baud_rate = int(args["--baud"]),
@@ -184,28 +203,40 @@ if __name__ == "__main__":
     comment = args["--comment"]
 
     with open(args["--output"],'a') as csvfile:
-        fieldnames = ['timestamp', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum','comment']
+        fieldnames = ['timestamp', 'session_time', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum','comment']
 
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         # only write header once
         if csvfile.tell() == 0:
             writer.writeheader()
+
+        start_time = datetime.datetime.now()
+        now = start_time
+
         while True:
+            last_time = now
+            now = datetime.datetime.now()
             v = dev.get_voltage()
             a = dev.get_current()
             state = dev.get_output_status()
             typ = dev.get_output_type()
             temp = dev.get_temperature()
+            if v is None or a is None:
+                continue
 
             w = v*a
 
-            wh = w * (delay_seconds / 3600.0)
+            timespan = now - last_time
+            timespan_s = timespan.seconds + timespan.microseconds/1000000.0
 
-            now = datetime.datetime.now()
+            wh = w * (timespan_s / 3600.0)
+
             
-            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')}] {v:.2f} V, {a:.3f} A, {w:.3f} W, {wh_sum:.3f} Wh")
+            
+            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time}] {v:.2f} V, {a:.3f} A, {w:.3f} W, {wh_sum:.3f} Wh")
             d = {'realtime': now.strftime('%Y-%m-%d %H:%M:%S.%f'),
                  'timestamp': now.strftime('%s%f'),
+                 'session_time': now - start_time,
                  'V': v,
                  'A': a,
                  'W': w,
@@ -215,7 +246,8 @@ if __name__ == "__main__":
                  }
             writer.writerow(d)
 
-            time.sleep(delay_seconds)
+            if (2*delay_seconds - timespan_s) > 0:
+                time.sleep(2*delay_seconds - timespan_s)
 
             last_v = v
             last_a = a
