@@ -309,7 +309,7 @@ if __name__ == "__main__":
                 stat_count += 1
                 wh_exact = ( (v_sum/stat_count) * (a_sum/stat_count) ) * full_timespan_s / 3600.0
 
-            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.2f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_exact:.3f} Wh_exact, {'ON' if state else 'OFF'}, {typ}")
+            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.3f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_exact:.3f} Wh_exact, {'ON' if state else 'OFF'}, {typ}")
 
             d = {'realtime': now.strftime('%Y-%m-%d %H:%M:%S.%f'),
                  'timestamp': now.strftime('%s%f'),
@@ -331,11 +331,11 @@ if __name__ == "__main__":
             # Adapt power (only when active - i.e. state==True)
             if w > max_watt + TOLERANCE_WATT and state:
                 a_limit = max_watt / v
-                print(f"Got {w} watt - want only {max_watt}, lower current limit to {a_limit}A")
+                print(f"Got {w:.3f} watt - I only want {max_watt:.3f}, lower current limit to {a_limit:.3f}A")
             
             if w < max_watt - TOLERANCE_WATT and typ == "CC" and state:
                 a_limit = max_watt / v
-                print(f"Got {w} watt - but I want {max_watt}, raise current limit to {a_limit}A")
+                print(f"Got {w:.3f} watt - but I want {max_watt:.3f}, raise current limit to {a_limit:.3f}A")
 
             if a_limit:
                 dev.set_current_limit(a_limit)
