@@ -130,7 +130,7 @@ class DPM8600:
 
     def _send(self, cmd, operands = [0]):
         global debug
-        if isinstance(cmd, ReadFunction):
+        if isinstance(cmd, self.ReadFunction):
             cmd_name = self.ReadFunction(cmd).name
         else:
             cmd_name = self.WriteFunction(cmd).name
@@ -152,7 +152,7 @@ class DPM8600:
 
     def _clearInput(self):
         dropped = b""
-        while self.serial.in_waiting() > 0:
+        while self.serial.in_waiting > 0:
             dropped += self.serial.read()
         print(f"dropped '{dropped.decode()}'")
 
@@ -175,6 +175,9 @@ class DPM8600:
             self._clearInput()
             return None
 
+        if ret.strip() == ":01ok":
+            return True
+
         m = self.cmd_re.match(ret)
 
         if m is None:
@@ -191,14 +194,20 @@ class DPM8600:
 
         return ret
 
-    def set_max_voltage(self, v):
+    def set_voltage_limit(self, v):
         self._send(self.WriteFunction.WRITE_VOLTAGE_LIMIT, [v])
+        # need to read confirmation "ok" - although not documented in spec
+        return self._read(self.WriteFunction.WRITE_VOLTAGE_LIMIT)
 
-    def set_max_current(self, a):
+    def set_current_limit(self, a):
         self._send(self.WriteFunction.WRITE_CURRENT_LIMIT, [a])
+        # need to read confirmation "ok" - although not documented in spec
+        return self._read(self.WriteFunction.WRITE_CURRENT_LIMIT)
 
     def set_output(self, output):
         self._send(self.WriteFunction.WRITE_OUTPUT_STATUS, [output])
+        # need to read confirmation "ok" - although not documented in spec
+        return self._read(self.WriteFunction.WRITE_OUTPUT_STATUS)
 
     def set_max_voltage_and_current(self, v, a):
         self._send(self.WriteFunction.WRITE_VOLTAGE_AND_CURRENT_LIMIT, [v,a])
@@ -208,23 +217,28 @@ class DPM8600:
         return self._read(self.ReadFunction.READ_OUTPUT_VOLTAGE)
 
     def get_current(self):
-
         self._send(self.ReadFunction.READ_OUTPUT_CURRENT)
         return self._read(self.ReadFunction.READ_OUTPUT_CURRENT)
 
     def get_output_status(self):
-
         self._send(self.ReadFunction.READ_OUTPUT_STATUS)
         return self._read(self.ReadFunction.READ_OUTPUT_STATUS)
 
     def get_output_type(self):
-
         self._send(self.ReadFunction.READ_OUTPUT_TYPE)
         return self._read(self.ReadFunction.READ_OUTPUT_TYPE)
 
     def get_temperature(self):
         self._send(self.ReadFunction.READ_TEMPERATURE)
         return self._read(self.ReadFunction.READ_TEMPERATURE)
+
+    def get_voltage_limit(self):
+        self._send(self.ReadFunction.READ_VOLTAGE_SETTING)
+        return self._read(self.ReadFunction.READ_VOLTAGE_SETTING)
+
+    def get_current_limit(self):
+        self._send(self.ReadFunction.READ_CURRENT_SETTING)
+        return self._read(self.ReadFunction.READ_CURRENT_SETTING)
 
 if __name__ == "__main__":
     global debug
@@ -243,6 +257,7 @@ if __name__ == "__main__":
     last_v = 0.0
     last_a = 0.0
     wh_sum = 0.0
+    wh_exact = 0.0
     v_sum = 0.0
     a_sum = 0.0
     stat_count = 0
@@ -252,7 +267,7 @@ if __name__ == "__main__":
     comment = args["--comment"]
 
     with open(args["--output"],'a') as csvfile:
-        fieldnames = ['timestamp', 'session_time', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum','comment']
+        fieldnames = ['timestamp', 'session_time', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum', 'Vmax', 'Amax', 'Wmax', 'comment']
 
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         # only write header once
@@ -271,6 +286,9 @@ if __name__ == "__main__":
             state = dev.get_output_status()
             typ = dev.get_output_type()
             temp = dev.get_temperature()
+            v_lim = dev.get_voltage_limit()
+            a_lim = dev.get_current_limit()
+
             if v is None or a is None:
                 continue
 
@@ -291,30 +309,34 @@ if __name__ == "__main__":
                 stat_count += 1
                 wh_exact = ( (v_sum/stat_count) * (a_sum/stat_count) ) * full_timespan_s / 3600.0
 
-            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time}] {v:.2f} V, {a:.3f} A, {w:.3f} W, {wh_sum:.3f} Wh, {wh_exact:.3f} Wh_exact, {state} state, {typ} typ")
+            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.2f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_exact:.3f} Wh_exact, {'ON' if state else 'OFF'}, {typ}")
+
             d = {'realtime': now.strftime('%Y-%m-%d %H:%M:%S.%f'),
                  'timestamp': now.strftime('%s%f'),
                  'session_time': now - start_time,
                  'V': v,
+                 'Vmax': v_lim,
                  'A': a,
+                 'Amax': a_lim,
                  'W': w,
+                 'Wmax': max_watt,
                  'Wh': wh,
-                 'Wh Sum': wh_sum,
+                 'Wh Sum': wh_exact,
                  'comment': comment
                  }
             writer.writerow(d)
 
-            # Adapt power
-            if w > max_watt + TOLERANCE_WATT:
+            # Adapt power (only when active - i.e. state==True)
+            if w > max_watt + TOLERANCE_WATT and state:
                 a_limit = max_watt / v
                 print(f"Got {w} watt - want only {max_watt}, lower current limit to {a_limit}A")
             
-            if w < max_watt - TOLERANCE_WATT and typ == "CC":
+            if w < max_watt - TOLERANCE_WATT and typ == "CC" and state:
                 a_limit = max_watt / v
                 print(f"Got {w} watt - but I want {max_watt}, raise current limit to {a_limit}A")
 
             if a_limit:
-                dev.set_max_current(a_limit)
+                dev.set_current_limit(a_limit)
                 a_limit = None
 
             # wait for next round
