@@ -267,7 +267,7 @@ if __name__ == "__main__":
     comment = args["--comment"]
 
     with open(args["--output"],'a') as csvfile:
-        fieldnames = ['timestamp', 'session_time', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum', 'Vmax', 'Amax', 'Wmax', 'comment']
+        fieldnames = ['timestamp', 'session_time', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum', 'Vmax', 'Amax', 'Wmax', 'OutputState', 'ConstVolt_ConstCurr','comment']
 
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         # only write header once
@@ -322,6 +322,8 @@ if __name__ == "__main__":
                  'Wmax': max_watt,
                  'Wh': wh,
                  'Wh Sum': wh_exact,
+                 'OutputState': 'ON' if state else 'OFF',
+                 'ConstVolt_ConstCurr': typ,
                  'comment': comment
                  }
             writer.writerow(d)
