@@ -36,6 +36,12 @@ import datetime
 import csv
 import sys
 import math
+try:
+    import pynput
+    use_key = True
+except:
+    print("pynput not found - no keypress support")
+    use_key = False
 
 from docopt import docopt
 from enum import Enum
@@ -48,6 +54,11 @@ elif os.name == 'posix':
 else:
     print(f'{os.name} is not supported')
     DEFAULT_INTERFACE = None # should fail anyway
+
+WATT_LOWER_LIMIT = 5
+WATT_UPPER_LIMIT = 300
+
+WATT_STEP = 5
 
 TOLERANCE_WATT = 1
 
@@ -161,7 +172,7 @@ class DPM8600:
 
         try:
             ret = self.serial.read_until()
-        except SerialException as se:
+        except serial.serialutil.SerialException as se:
             print(f"SerialException {se}", file=sys.stderr)
             return None
         ret = ret.decode()
@@ -240,8 +251,19 @@ class DPM8600:
         self._send(self.ReadFunction.READ_CURRENT_SETTING)
         return self._read(self.ReadFunction.READ_CURRENT_SETTING)
 
+def key_press(key):
+    global max_watt
+
+    if key == pynput.keyboard.Key.up:
+        if max_watt + WATT_STEP <= WATT_UPPER_LIMIT:
+            max_watt += WATT_STEP
+    elif key == pynput.keyboard.Key.down:
+        if max_watt - WATT_STEP >= WATT_LOWER_LIMIT:
+            max_watt -= WATT_STEP
+
 if __name__ == "__main__":
     global debug
+    global max_watt
     args = docopt(__doc__, version="0.1")
 
     if args["--interface"] is None:
@@ -265,6 +287,11 @@ if __name__ == "__main__":
     delay_seconds = int(args["--delay"]) / 1000.0
 
     comment = args["--comment"]
+
+    if use_key:
+        print(f"pynput found - use UP or DOWN key to change watt")
+        key_handler = pynput.keyboard.Listener(on_press=key_press)
+        key_handler.start()
 
     with open(args["--output"],'a') as csvfile:
         fieldnames = ['timestamp', 'session_time', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum', 'Vmax', 'Amax', 'Wmax', 'OutputState', 'ConstVolt_ConstCurr','comment']
