@@ -283,7 +283,7 @@ if __name__ == "__main__":
     last_v = 0.0
     last_a = 0.0
     wh_sum = 0.0
-    wh_exact = 0.0
+    wh_gross = 0.0
     v_sum = 0.0
     a_sum = 0.0
     stat_count = 0
@@ -322,7 +322,7 @@ if __name__ == "__main__":
             a = dev.get_current()
             state = dev.get_output_status()
             typ = dev.get_output_type()
-            temp = dev.get_temperature()
+            #temp = dev.get_temperature()
             v_lim = dev.get_voltage_limit()
             a_lim = dev.get_current_limit()
 
@@ -338,13 +338,13 @@ if __name__ == "__main__":
 
             full_timespan_s = now_monotonic - start_time_monotonic
 
+            stat_count += 1 # also count idle for gross performance
             if v > 0 and a > 0:
                 v_sum += v
                 a_sum += a
-                stat_count += 1
-                wh_exact = ( (v_sum/stat_count) * (a_sum/stat_count) ) * full_timespan_s / 3600.0
+                wh_gross = ( (v_sum/stat_count) * (a_sum/stat_count) ) * full_timespan_s / 3600.0
 
-            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.3f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_exact:.3f} Wh_exact, {'ON' if state else 'OFF'}, {typ}")
+            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.3f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_gross:.3f} Wh_gross, {'ON' if state else 'OFF'}, {typ}")
 
             d = {'realtime': now.strftime('%Y-%m-%d %H:%M:%S.%f'),
                  'timestamp': now.strftime('%s%f'),
@@ -356,7 +356,7 @@ if __name__ == "__main__":
                  'W': w,
                  'Wmax': max_watt,
                  'Wh': wh,
-                 'Wh Sum': wh_exact,
+                 'Wh Sum': wh_sum,
                  'OutputState': 'ON' if state else 'OFF',
                  'ConstVolt_ConstCurr': typ,
                  'comment': comment
