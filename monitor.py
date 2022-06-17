@@ -175,7 +175,11 @@ class DPM8600:
         except serial.serialutil.SerialException as se:
             print(f"SerialException {se}", file=sys.stderr)
             return None
-        ret = ret.decode()
+        try:
+            ret = ret.decode()
+        except UnicodeDecodeError as e:
+            print(f"UnicodeDecodeError {e}", file=sys.stderr)
+            return None
         if debug: print(f"in >{ret}<",file=sys.stderr)
 
         if ret is None or len(ret) == 0:
