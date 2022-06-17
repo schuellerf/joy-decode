@@ -306,12 +306,18 @@ if __name__ == "__main__":
             writer.writeheader()
 
         start_time = datetime.datetime.now()
+        start_time_monotonic = time.monotonic()
         now = start_time
+        now_monotonic = start_time_monotonic
         time.sleep(delay_seconds)
 
         while True:
             last_time = now
+            last_time_monotonic = now_monotonic
+
             now = datetime.datetime.now()
+            now_monotonic = time.monotonic()
+
             v = dev.get_voltage()
             a = dev.get_current()
             state = dev.get_output_status()
@@ -325,14 +331,12 @@ if __name__ == "__main__":
 
             w = v*a
 
-            timespan = now - last_time
-            timespan_s = timespan.seconds + (timespan.microseconds/1000000.0)
+            timespan_s = now_monotonic - last_time_monotonic
 
             wh = w * timespan_s / 3600.0
             wh_sum += wh
 
-            full_timespan = now - start_time
-            full_timespan_s = full_timespan.seconds + ( full_timespan.microseconds / 1000000.0 )
+            full_timespan_s = now_monotonic - start_time_monotonic
 
             if v > 0 and a > 0:
                 v_sum += v
@@ -372,9 +376,9 @@ if __name__ == "__main__":
                 dev.set_current_limit(a_limit)
                 a_limit = None
 
-            # wait for next round
-            if (2*delay_seconds - timespan_s) > 0:
-                time.sleep(2*delay_seconds - timespan_s)
+            all_time_s = now_monotonic - start_time_monotonic
+            offset_s = all_time_s % delay_seconds
+            time.sleep(delay_seconds - offset_s)
 
             last_v = v
             last_a = a
