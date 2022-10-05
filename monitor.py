@@ -15,17 +15,20 @@ to your PC
 The generated CSV can be imported by e.g. libreoffice with the language "English (USA)" to make sure that the numbers are correct
 
 Usage:
-    monitor.py [--interface=<dev>] [--baud=<baud>] [--address_code=<addr>] [--delay=<delay>] [--output=<output>] [--comment=<comment>] [--max-watt=<max-watt>] [--verbose]
+    monitor.py [--interface=<dev>] [--baud=<baud>] [--address_code=<addr>] [--delay=<delay>] [--output=<output>]
+               [--comment=<comment>] [--max-watt=<max-watt>] [--verbose] [--mqtt-server=<mqttserver>]
 
 Options:
-    -i --interface=<dev>      Serial Device
-    -b --baud=<baud>          Baudrate [default: 9600]
-    -a --address_code=<addr>  Address code of device [default: 1]
-    -d --delay=<delay>        Delay for polling of values in milliseconds. Set to 0 to disable polling. [default: 1000]
-    -o --output=<output>      Filename to output CSV data, will append if existing [default: power_log.csv]
-    -c --comment=<comment>    Optional comment to be added to the data. (e.g. person doing the workout) [default: ]
-    -w --max-watt=<watt>      Set output current to limit to this power (in watts) [default: 50]
-    -v --verbose              Debug output on stderr [default: false]
+    -i --interface=<dev>           Serial Device
+    -b --baud=<baud>               Baudrate [default: 9600]
+    -a --address_code=<addr>       Address code of device [default: 1]
+    -d --delay=<delay>             Delay for polling of values in milliseconds. Set to 0 to disable polling. [default: 1000]
+    -o --output=<output>           Filename to output CSV data, will append if existing [default: power_log.csv]
+    -c --comment=<comment>         Optional comment to be added to the data. (e.g. person doing the workout)
+                                   Will also be used to override the MQTT topic (if an MQTT server is given) [default: ]
+    -w --max-watt=<watt>           Set output current to limit to this power (in watts) [default: 50]
+    -v --verbose                   Debug output on stderr [default: false]
+    -m --mqtt-server=<mqttserver>  Send the data to and MQTT Server
 """
 
 import os
@@ -36,6 +39,8 @@ import datetime
 import csv
 import sys
 import math
+import paho.mqtt.client as mqtt
+
 try:
     import pynput
     use_key = True
@@ -255,6 +260,7 @@ class DPM8600:
         self._send(self.ReadFunction.READ_CURRENT_SETTING)
         return self._read(self.ReadFunction.READ_CURRENT_SETTING)
 
+
 def key_press(key):
     global max_watt
 
@@ -264,6 +270,18 @@ def key_press(key):
     elif key == pynput.keyboard.Key.down:
         if max_watt - WATT_STEP >= WATT_LOWER_LIMIT:
             max_watt -= WATT_STEP
+
+# The callback for when the MQTT client receives a CONNACK response from the server.
+def on_connect(client, userdata, flags, rc):
+    print(f"Connected with result code {rc}")
+
+    # Subscribing in on_connect() means that if we lose the connection and
+    # reconnect then subscriptions will be renewed.
+    client.subscribe("$SYS/#")
+
+# The callback for when a MQTT  PUBLISH message is received from the server.
+def on_message(client, userdata, msg):
+    print(f"{msg.topic} {msg.payload}")
 
 if __name__ == "__main__":
     global debug
@@ -275,9 +293,27 @@ if __name__ == "__main__":
     print(args)
     debug = bool(args["--verbose"])
 
-    dev =  DPM8600(address_code = int(args["--address_code"]),
-                   baud_rate = int(args["--baud"]),
-                   interface = args["--interface"])
+    dev = DPM8600(address_code = int(args["--address_code"]),
+                  baud_rate = int(args["--baud"]),
+                  interface = args["--interface"])
+
+    comment = args["--comment"]
+    mqtt_server = args.get("--mqtt-server")
+    if mqtt_server:
+        print(f"Connecting to {mqtt_server}...")
+        mqttc = mqtt.Client()
+        mqttc.on_connect = on_connect
+        mqttc.on_message = on_message
+        mqttc.connect(mqtt_server)
+        mqttc.loop_start()
+        if comment:
+            mqtt_topic = comment
+        else:
+            mqtt_topic = "joy_charger"
+
+        print(f"MQTT Topic is '{mqtt_topic}'")
+    else:
+        mqttc = None
 
     max_watt = int(args["--max-watt"])
     last_v = 0.0
@@ -289,8 +325,6 @@ if __name__ == "__main__":
     stat_count = 0
     a_limit = None
     delay_seconds = int(args["--delay"]) / 1000.0
-
-    comment = args["--comment"]
 
     if use_key:
         print(f"pynput found - use UP or DOWN key to change watt")
@@ -322,7 +356,7 @@ if __name__ == "__main__":
             a = dev.get_current()
             state = dev.get_output_status()
             typ = dev.get_output_type()
-            #temp = dev.get_temperature()
+            # temp = dev.get_temperature()
             v_lim = dev.get_voltage_limit()
             a_lim = dev.get_current_limit()
 
@@ -348,7 +382,7 @@ if __name__ == "__main__":
 
             d = {'realtime': now.strftime('%Y-%m-%d %H:%M:%S.%f'),
                  'timestamp': now.strftime('%s%f'),
-                 'session_time': now - start_time,
+                 'session_time': f"{now - start_time}",
                  'V': v,
                  'Vmax': v_lim,
                  'A': a,
@@ -362,6 +396,14 @@ if __name__ == "__main__":
                  'comment': comment
                  }
             writer.writerow(d)
+            if mqttc:
+                for k in d:
+                    try:
+                        mqttc.publish(f"{mqtt_topic}/{k}", d[k])
+                    except Exception as e:
+                        print(f"Tried to send value for {k} but failed - {type(d[k])}")
+                        print(e)
+                        raise
 
             # Adapt power (only when active - i.e. state==True)
             if w > max_watt + TOLERANCE_WATT and state:

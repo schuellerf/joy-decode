@@ -1,3 +1,4 @@
 pyserial
 docopt
 pynput
+paho-mqtt
