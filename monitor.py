@@ -336,7 +336,7 @@ if __name__ == "__main__":
         key_handler.start()
 
     with open(args["--output"],'a') as csvfile:
-        fieldnames = ['timestamp', 'session_time', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum', 'Vmax', 'Amax', 'Wmax', 'OutputState', 'ConstVolt_ConstCurr','comment']
+        fieldnames = ['timestamp', 'session_time', 'workout_time', 'realtime', 'V', 'A', 'W', 'Wh', 'Wh Sum', 'Vmax', 'Amax', 'Wmax', 'OutputState', 'ConstVolt_ConstCurr','comment']
 
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         # only write header once
@@ -348,6 +348,8 @@ if __name__ == "__main__":
         now = start_time
         now_monotonic = start_time_monotonic
         time.sleep(delay_seconds)
+        workout_time = now_monotonic - now_monotonic
+        last_action_begin = None
 
         while True:
             last_time = now
@@ -382,11 +384,21 @@ if __name__ == "__main__":
                 a_sum += a
                 wh_gross = ( (v_sum/stat_count) * (a_sum/stat_count) ) * full_timespan_s / 3600.0
 
-            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.3f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_gross:.3f} Wh_gross, {'ON' if state else 'OFF'}, {typ}")
+
+                if not last_action_begin:
+                    last_action_begin = now_monotonic
+
+            else:
+                if last_action_begin:
+                    workout_time += now_monotonic - last_action_begin
+                    last_action_begin = None
+
+            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time} ; {workout_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.3f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_gross:.3f} Wh_gross, {'ON' if state else 'OFF'}, {typ}")
 
             d = {'realtime': now.strftime('%Y-%m-%d %H:%M:%S.%f'),
                  'timestamp': now.strftime('%s%f'),
                  'session_time': f"{now - start_time}",
+                 'workout_time': f"{workout_time}",
                  'V': v,
                  'Vmax': v_lim,
                  'A': a,
