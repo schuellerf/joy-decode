@@ -16,7 +16,7 @@ The generated CSV can be imported by e.g. libreoffice with the language "English
 
 Usage:
     monitor.py [--interface=<dev>] [--baud=<baud>] [--address_code=<addr>] [--delay=<delay>] [--output=<output>]
-               [--comment=<comment>] [--max-watt=<max-watt>] [--verbose] [--mqtt-server=<mqttserver>]
+               [--comment=<comment>] [--max-watt=<max-watt>] [--voltage-limit=<volt>] [--verbose] [--mqtt-server=<mqttserver>]
 
 Options:
     -i --interface=<dev>           Serial Device
@@ -27,6 +27,7 @@ Options:
     -c --comment=<comment>         Optional comment to be added to the data. (e.g. person doing the workout)
                                    Will also be used to override the MQTT topic (if an MQTT server is given) [default: ]
     -w --max-watt=<watt>           Set output current to limit to this power (in watts) [default: 50]
+    -l --voltage-limit=<volt>      Set output voltage limit (in volts) [default: 14.5]
     -v --verbose                   Debug output on stderr [default: false]
     -m --mqtt-server=<mqttserver>  Send the data to and MQTT Server
 """
@@ -316,6 +317,7 @@ if __name__ == "__main__":
         mqttc = None
 
     max_watt = int(args["--max-watt"])
+    max_volt = float(args["--voltage-limit"])
     last_v = 0.0
     last_a = 0.0
     wh_sum = 0.0
@@ -325,6 +327,8 @@ if __name__ == "__main__":
     stat_count = 0
     a_limit = None
     delay_seconds = int(args["--delay"]) / 1000.0
+
+    dev.set_voltage_limit(max_volt)
 
     if use_key:
         print(f"pynput found - use UP or DOWN key to change watt")
