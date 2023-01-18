@@ -17,6 +17,7 @@ The generated CSV can be imported by e.g. libreoffice with the language "English
 Usage:
     monitor.py [--interface=<dev>] [--baud=<baud>] [--address_code=<addr>] [--delay=<delay>] [--output=<output>]
                [--comment=<comment>] [--max-watt=<max-watt>] [--voltage-limit=<volt>] [--verbose] [--mqtt-server=<mqttserver>]
+               [--no-retry]
 
 Options:
     -i --interface=<dev>           Serial Device
@@ -29,6 +30,8 @@ Options:
     -w --max-watt=<watt>           Set output current to limit to this power (in watts) [default: 50]
     -l --voltage-limit=<volt>      Set output voltage limit (in volts) [default: 14.5]
     -v --verbose                   Debug output on stderr [default: false]
+    -n --no-retry                  Don't wait until the serial interface is available [default: false]
+                                   Default "false" => We'll wait for the device endlessly
     -m --mqtt-server=<mqttserver>  Send the data to and MQTT Server
 """
 
@@ -119,17 +122,22 @@ class DPM8600:
                 return "CV" if val == 0 else "CC"
 
 
-    def __init__(self, address_code = 1, baud_rate = 9600, interface = DEFAULT_INTERFACE):
+    def __init__(self, address_code = 1, baud_rate = 9600, interface = DEFAULT_INTERFACE, retry = True, wait_time = 5):
         self.address_code = address_code
         self.baud_rate = baud_rate
         self.interface = interface
         self.serial = None
 
-        try:
-            self.serial = serial.Serial(interface, baud_rate, timeout=5)
-        except serial.serialutil.SerialException as se:
-            print(f"SerialException: {se}")
-            sys.exit(1)
+        while not self.serial:
+            try:
+                self.serial = serial.Serial(interface, baud_rate, timeout=5)
+            except serial.serialutil.SerialException as se:
+                print(f"SerialException: {se}")
+                if not retry:
+                    sys.exit(1)
+            if not self.serial:
+                print(f"We'll retry to open the serial interface in {wait_time} seconds...")
+                time.sleep(wait_time)
 
         try:
             self.serial.open()
@@ -293,10 +301,12 @@ if __name__ == "__main__":
         args["--interface"] = DEFAULT_INTERFACE
     print(args)
     debug = bool(args["--verbose"])
+    retry = not bool(args["--no-retry"])
 
     dev = DPM8600(address_code = int(args["--address_code"]),
                   baud_rate = int(args["--baud"]),
-                  interface = args["--interface"])
+                  interface = args["--interface"],
+                  retry = retry)
 
     comment = args["--comment"]
     mqtt_server = args.get("--mqtt-server")
@@ -388,12 +398,12 @@ if __name__ == "__main__":
                 if not last_action_begin:
                     last_action_begin = now_monotonic
 
-            else:
-                if last_action_begin:
-                    workout_time += now_monotonic - last_action_begin
-                    last_action_begin = None
 
-            print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time} ; {workout_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.3f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_gross:.3f} Wh_gross, {'ON' if state else 'OFF'}, {typ}")
+            try:
+                print(f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')} / {now - start_time} ; {workout_time}] {v:.2f}/{v_lim:.2f} V, {a:.3f}/{a_lim:.3f} A, {w:.3f}/{max_watt:.3f} W, {wh_sum:.3f} Wh, {wh_gross:.3f} Wh_gross, {'ON' if state else 'OFF'}, {typ}")
+            except Exception as e:
+                print(e)
+                print(f"[{now} / {now - start_time} ; {workout_time}] {v}/{v_lim} V, {a}/{a_lim} A, {w}/{max_watt} W, {wh_sum} Wh, {wh_gross} Wh_gross, {'ON' if state else 'OFF'}, {typ}")
 
             d = {'realtime': now.strftime('%Y-%m-%d %H:%M:%S.%f'),
                  'timestamp': now.strftime('%s%f'),
