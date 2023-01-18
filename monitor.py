@@ -318,7 +318,7 @@ if __name__ == "__main__":
         mqttc.connect(mqtt_server)
         mqttc.loop_start()
         if comment:
-            mqtt_topic = comment
+            mqtt_topic = comment.lower().replace(" ","_")
         else:
             mqtt_topic = "joy_charger"
 
