@@ -388,6 +388,10 @@ if __name__ == "__main__":
 
             full_timespan_s = now_monotonic - start_time_monotonic
 
+            if last_action_begin:
+                workout_time += now_monotonic - last_action_begin
+                last_action_begin = None
+
             stat_count += 1 # also count idle for gross performance
             if v > 0 and a > 0:
                 v_sum += v
